@@ -16,8 +16,13 @@ doctest = false
 [lints.rust]
 unsafe_code = "forbid"
 
-[features]
-infinity-retry = []
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = "fat"
 
 [dependencies]
 ureq = "2.1"

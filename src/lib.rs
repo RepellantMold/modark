@@ -52,9 +52,21 @@ pub enum Error {
 
 /// Simple struct to represent a search result, id and filename will be provided in each
 #[derive(Debug)]
-pub struct ModSearch {
+pub struct ModSearchResolve {
     pub id: u32,
     pub filename: String,
+}
+
+#[derive(Debug)]
+pub struct ModSearch {
+    pub searchtype: String,
+    pub searchquery: String,
+    pub searchpage: Option<u32>,
+    pub searchformat: Option<String>,
+    /// It should be in the format of XX-YY ([reference](https://modarchive.org/index.php?xml-api-usage-size))
+    pub searchsize: Option<String>,
+    /// Identical to `searchsize`, but the upper limit can be removed (XX-) ([reference](https://modarchive.org/index.php?xml-api-usage-channels))
+    pub searchchannels: Option<String>,
 }
 
 /// Struct containing all of the info about a module
@@ -93,24 +105,25 @@ pub struct ModInfo {
     pub instrument_text: String,
 }
 
-fn inner_request(mod_id: u32, api_key: &str) -> Result<String, crate::Error> {
-    let body = ureq::get(
-        format!(
-            "{BASEURL}?key={api_key}&request=view_by_moduleid&query={mod_id}"
-        )
-        .as_str(),
-    )
-    .timeout(std::time::Duration::from_secs(60))
-    .call();
-
-    match body {
-        Ok(body) => Ok(body.into_string().unwrap_or_default()),
-        Err(_) => Err(crate::Error::RequestError),
-    }
-}
-
 impl ModInfo {
-    /// (a helper function to make the code more readable)
+    /// (a helper function to make the code more readable, do not use directly)
+    fn _inner_request(mod_id: u32, api_key: &str) -> Result<String, crate::Error> {
+        let body = ureq::get(
+            format!(
+                "{BASEURL}?key={api_key}&request=view_by_moduleid&query={mod_id}"
+            )
+            .as_str(),
+        )
+        .timeout(std::time::Duration::from_secs(60))
+        .call();
+
+        match body {
+            Ok(body) => Ok(body.into_string().unwrap_or_default()),
+            Err(_) => Err(crate::Error::RequestError),
+        }
+    }
+
+    /// (a helper function to make the code more readable, do not use directly)
     fn find_node_text(descendants: &[roxmltree::Node], tag: &str) -> Option<String> {
         descendants.iter()
             .find(|node| node.has_tag_name(tag))
@@ -122,7 +135,7 @@ impl ModInfo {
     /// generated at random, deliberately entered or acquired by resolving a filename and
     /// picking a search result), and then gives you a full [`ModInfo`] struct.
     pub fn get(mod_id: u32, api_key: &str) -> Result<ModInfo, crate::Error> {
-        let body = inner_request(mod_id, api_key);
+        let body = Self::_inner_request(mod_id, api_key);
 
         if body.is_err() {
             return Err(crate::Error::RequestError);
@@ -164,7 +177,7 @@ impl ModInfo {
         let download_count = download_count.parse::<u32>().unwrap_or_default();
         let fav_count = fav_count.parse::<u32>().unwrap_or_default();
         let channel_count = channel_count.parse::<u32>().unwrap_or_default();
-        
+
 
         Ok(ModInfo {
             id,
@@ -186,7 +199,7 @@ impl ModInfo {
 
     /// Returns a Mod Archive download link for the given module, you can get this struct by using
     /// [`ModInfo::get()`], or search using [`ModInfo::resolve_filename()`], if you're using the
-    /// resolver function please consider using the [`ModSearch::get_download_link()`] method
+    /// resolver function please consider using the [`ModSearchResolve::get_download_link()`] method
     /// instead.
     pub fn get_download_link(&self) -> String {
         format!(
@@ -196,8 +209,8 @@ impl ModInfo {
     }
 
     /// Searches for your string on Mod Archive and returns the results on the first page (a.k.a
-    /// only up to the first 40) as a vector of [`ModSearch`]
-    pub fn resolve_filename(filename: &str) -> Result<Vec<ModSearch>, crate::Error> {
+    /// only up to the first 40) as a vector of [`ModSearchResolve`]
+    pub fn resolve_filename(filename: &str) -> Result<Vec<ModSearchResolve>, crate::Error> {
         let body: String = ureq::get(
                 format!(
                     "https://modarchive.org/index.php?request=search&query={}&submit=Find&search_type=filename",
@@ -222,7 +235,7 @@ impl ModInfo {
         // from this point on we can unwrap after each query selector
         // because our info will for sure be present.
 
-        let links: Vec<ModSearch> = dom
+        let links: Vec<ModSearchResolve> = dom
             .query_selector("a.standard-link[title]")
             .unwrap()
             .map(|nodehandle| {
@@ -242,21 +255,74 @@ impl ModInfo {
 
                 let filename = node.inner_text(parser).into();
 
-                ModSearch { id, filename }
+                ModSearchResolve { id, filename }
             })
             .collect();
 
         Ok(links)
     }
+
+    pub fn track_requests(api_key: &str) -> Result<String, crate::Error> {
+        let body = ureq::get(
+            format!(
+                "{BASEURL}?key={api_key}&request=view_requests"
+            )
+            .as_str(),
+        )
+        .timeout(std::time::Duration::from_secs(60))
+        .call();
+
+        if body.is_err() {
+            return Err(crate::Error::RequestError);
+        }
+
+        let body = body.unwrap();
+
+        let body = body.into_string().unwrap_or_default();
+
+        let xml = roxmltree::Document::parse(&body);
+
+        if xml.is_err() {
+            return Err(crate::Error::ParsingError);
+        }
+
+        let xml = xml.unwrap();
+
+        let xml_descendants: Vec<_> = xml.descendants().collect();
+
+        let current = Self::find_node_text(&xml_descendants, "current").unwrap_or_default();
+        let maximum = Self::find_node_text(&xml_descendants, "maximum").unwrap_or_default();
+
+        Ok(format!("{} requests made out of {}", current, maximum))
+    }
 }
 
-impl ModSearch {
+impl ModSearchResolve {
     /// Get the download link of this specific module.
     pub fn get_download_link(&self) -> String {
         format!(
             "https://api.modarchive.org/downloads.php?moduleid={}#{}",
             self.id, self.filename
         )
+    }
+}
+
+impl ModSearch {
+    /// (a helper function to make the code more readable, do not use directly)
+    fn _inner_request(request: &str, query: &str, api_key: &str) -> Result<String, crate::Error> {
+        let body = ureq::get(
+            format!(
+                "{BASEURL}?key={api_key}&request={request}&query={query}"
+            )
+            .as_str(),
+        )
+        .timeout(std::time::Duration::from_secs(60))
+        .call();
+
+        match body {
+            Ok(body) => Ok(body.into_string().unwrap_or_default()),
+            Err(_) => Err(crate::Error::RequestError),
+        }
     }
 }
 
