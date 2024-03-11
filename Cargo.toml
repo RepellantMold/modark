@@ -1,11 +1,11 @@
 [package]
-name = "trackermeta"
-version = "0.5.1"
-authors = ["vivyir <ayitsmephoenix@airmail.cc>"]
+name = "modark"
+version = "0.5.2"
+authors = ["RepellantMold <repellantmold@outlook.com>", "vivyir <ayitsmephoenix@airmail.cc>"]
 edition = "2021"
-description = "Simple library to get and parse Mod Archive module data"
+description = "Simple library to get and parse Mod Archive module data (forked from trackermeta by vivyir for a Discord bot)"
 readme = "README.md"
-repository = "https://github.com/vivyir/trackermeta"
+repository = "https://github.com/RepellantMold/modark"
 license = "MPL-2.0"
 keywords = ["modarchive", "metadata", "tracker"]
 
@@ -25,3 +25,4 @@ escaper = "0.1"
 chrono = "0.4"
 cfg-if = "1.0"
 tl = "0.7"
+roxmltree = "0.19.0"
