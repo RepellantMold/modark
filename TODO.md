@@ -1,4 +1,4 @@
-I'm currently only implementing Level 3 features.
+I'm currently only implementing [Level 3 features](https://modarchive.org/index.php?xml-api-usage-level3).
 
 ### Todo
 

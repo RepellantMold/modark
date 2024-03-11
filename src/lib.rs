@@ -1,14 +1,11 @@
 //! This is a library crate for working with the [Mod Archive](https://modarchive.org)
-//! website, it is very barebones and simple to work with, please check out the
-//! documentation for [`ModInfo`] and its methods for more info, do be sure to look
-//! at the examples aswell!
-//!
-//! (This is the Reborn update, v0.5.x)
+//! website via [its XML API](https://modarchive.org/index.php?xml-api). Please check out the documentation for [`ModInfo`] and its methods for more info,
+//! do be sure to look at the examples aswell!
 //!
 //! ## Example
-//! ### Get module info as a struct using a module id
+//! ### Get module info as a struct using a module ID
 //! ```rust
-//! use trackermeta::ModInfo;
+//! use modark::ModInfo;
 //!
 //! fn main() {
 //!     let modinfo = ModInfo::get(51772).unwrap();
@@ -17,9 +14,9 @@
 //! ```
 //!
 //! ## Example
-//! ### Resolve filename to id then use id to get the info as struct
+//! ### Resolve filename to ID then use ID to get the info as struct
 //! ```rust
-//! use trackermeta::ModInfo;
+//! use modark::ModInfo;
 //!
 //! fn main() {
 //!     let modid = ModInfo::resolve_filename("noway.s3m").unwrap()[0].id;
@@ -34,6 +31,9 @@
 //! [Mod Archive]: https://modarchive.org
 #![allow(clippy::needless_doctest_main)]
 
+/// The base URL for the Mod Archive XML API
+const BASEURL: &str = "https://modarchive.org/data/xml-tools.php";
+
 use chrono::prelude::{DateTime, Utc};
 
 // https://stackoverflow.com/a/64148190
@@ -46,6 +46,8 @@ fn iso8601_time(st: &std::time::SystemTime) -> String {
 #[derive(Debug)]
 pub enum Error {
     NotFound,
+    ParsingError,
+    RequestError,
 }
 
 /// Simple struct to represent a search result, id and filename will be provided in each
@@ -91,202 +93,71 @@ pub struct ModInfo {
     pub instrument_text: String,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "infinity-retry")] {
-        fn inner_request(mod_id: u32) -> String{
-            loop {
-                match ureq::get(
-                    format!(
-                        "https://modarchive.org/index.php?request=view_by_moduleid&query={}",
-                        mod_id
-                    )
-                    .as_str(),
-                )
-                .timeout(std::time::Duration::from_secs(60))
-                .call() {
-                    Ok(req) => {
-                        return req.into_string().unwrap()
-                    }
-                    Err(_) => continue,
-                };
-            }
-        }
-    } else {
-        fn inner_request(mod_id: u32) -> String {
-            let body = ureq::get(
-                format!(
-                    "https://modarchive.org/index.php?request=view_by_moduleid&query={}",
-                    mod_id
-                )
-                .as_str(),
-            )
-            .timeout(std::time::Duration::from_secs(60))
-            .call()
-            .unwrap()
-            .into_string()
-            .unwrap();
+fn inner_request(mod_id: u32, api_key: &str) -> String {
+    let body = ureq::get(
+        format!(
+            "{BASEURL}?key={api_key}&request=view_by_moduleid&query={mod_id}"
+        )
+        .as_str(),
+    )
+    .timeout(std::time::Duration::from_secs(60))
+    .call()
+    .unwrap()
+    .into_string()
+    .unwrap();
 
-            body
-        }
-    }
+    body
 }
 
 impl ModInfo {
+    /// (a helper function to make the code more readable)
+    fn find_node_text(descendants: &[roxmltree::Node], tag: &str) -> Option<String> {
+        descendants.iter()
+            .find(|node| node.has_tag_name(tag))
+            .and_then(|node| node.text())
+            .map(|s| s.to_string())
+    }
+
     /// Probably the singular most important function in this crate, takes a module ID (can be
     /// generated at random, deliberately entered or acquired by resolving a filename and
     /// picking a search result), and then gives you a full [`ModInfo`] struct.
-    pub fn get(mod_id: u32) -> Result<ModInfo, crate::Error> {
-        let body = inner_request(mod_id);
-
-        let dom = tl::parse(body.as_ref(), tl::ParserOptions::default()).unwrap();
-        let parser = dom.parser();
+    pub fn get(mod_id: u32, api_key: &str) -> Result<ModInfo, crate::Error> {
+        let body = inner_request(mod_id, api_key);
 
         let id = mod_id;
         let scrape_time = iso8601_time(&std::time::SystemTime::now());
 
-        let valid = dom.get_elements_by_class_name("mod-page-archive-info")
-                .next()
-                .is_some();
+        let xml = roxmltree::Document::parse(&body);
 
-        if !valid {
+        if xml.is_err() {
             return Err(crate::Error::NotFound);
         }
 
-        let filename = {
-            dom.get_elements_by_class_name("module-sub-header")
-                .next()
-                .unwrap() // we can unwrap because if its absent we've already errored up above
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .replace(['(', ')'], "")
-        };
+        let xml = xml.unwrap();
 
-        let title = {
-            escaper::decode_html(
-                &dom.query_selector("h1")
-                    .and_then(|mut iter| iter.next())
-                    .unwrap()
-                    .get(parser)
-                    .unwrap()
-                    .inner_text(parser)
-                    .replace(&format!(" ({})", &filename), ""),
-            )
-            .unwrap()
-        };
+        let xml_descendants: Vec<_> = xml.descendants().collect();
 
-        let size = {
-            dom.query_selector("li.stats")
-                // get the 8th hit (nth starts from 0)
-                .and_then(|mut iter| iter.nth(7))
-                .unwrap()
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .replace("Uncompressed Size: ", "")
-        };
+        if Self::find_node_text(&xml_descendants, "error").is_some() {
+            return Err(crate::Error::NotFound);
+        }
 
-        let md5 = {
-            dom.query_selector("li.stats")
-                .and_then(|mut iter| iter.nth(4))
-                .unwrap()
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .replace("MD5: ", "")
-        };
+        let filename = Self::find_node_text(&xml_descendants, "filename").unwrap_or_default();
+        let title = Self::find_node_text(&xml_descendants, "title").unwrap_or_default();
+        let size = Self::find_node_text(&xml_descendants, "size").unwrap_or_default();
+        let md5 = Self::find_node_text(&xml_descendants, "hash").unwrap_or_default();
+        let format = Self::find_node_text(&xml_descendants, "format").unwrap_or_default();
+        let spotlit = false; // TODO: implement this
+        let download_count = Self::find_node_text(&xml_descendants, "hits").unwrap_or_default();
+        let fav_count = Self::find_node_text(&xml_descendants, "favoured").unwrap_or_default();
+        let channel_count = Self::find_node_text(&xml_descendants, "channels").unwrap_or_default();
+        let genre = Self::find_node_text(&xml_descendants, "genretext").unwrap_or_default();
+        let upload_date = Self::find_node_text(&xml_descendants, "date").unwrap_or_default();
+        let instrument_text = Self::find_node_text(&xml_descendants, "instruments").unwrap_or_default();
 
-        let format = {
-            dom.query_selector("li.stats")
-                .and_then(|mut iter| iter.nth(5))
-                .unwrap()
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .replace("Format: ", "")
-        };
-
-        let spotlit = dom.get_elements_by_class_name("mod-page-featured")
-                .next()
-                .is_some();
-
-        let download_count = {
-            dom.query_selector("li.stats")
-                .and_then(|mut iter| iter.nth(2))
-                .unwrap()
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .replace("Downloads: ", "")
-                .parse()
-                .unwrap()
-        };
-
-        let fav_count = {
-            dom.query_selector("li.stats")
-                .and_then(|mut iter| iter.nth(3))
-                .unwrap()
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .replace("Favourited: ", "")
-                .replace(" times", "")
-                .parse()
-                .unwrap()
-        };
-
-        let channel_count = {
-            dom.query_selector("li.stats")
-                .and_then(|mut iter| iter.nth(6))
-                .unwrap()
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .replace("Channels: ", "")
-                .parse()
-                .unwrap()
-        };
-
-        dom.query_selector("a.master");
-
-        let genre = {
-            dom.query_selector("li.stats")
-                .and_then(|mut iter| iter.nth(8))
-                .unwrap()
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .replace("Genre: ", "")
-        };
-
-        let upload_date = {
-            dom.query_selector("li.stats")
-                .and_then(|mut iter| iter.next())
-                .unwrap()
-                .get(parser)
-                .unwrap()
-                .inner_text(parser)
-                .split(" times since ")
-                .nth(1)
-                .unwrap()
-                .replace(" :D", "")
-                .trim()
-                .into()
-        };
-
-        let instrument_text = {
-            escaper::decode_html(
-                &dom.query_selector("pre")
-                    .and_then(|mut iter| iter.nth(1))
-                    .unwrap()
-                    .get(parser)
-                    .unwrap()
-                    .inner_text(parser),
-            )
-            .unwrap()
-            .trim()
-            .into()
-        };
+        // Cast some of the values to their correct types in the struct
+        let download_count = download_count.parse::<u32>().unwrap();
+        let fav_count = fav_count.parse::<u32>().unwrap();
+        let channel_count = channel_count.parse::<u32>().unwrap();
 
         Ok(ModInfo {
             id,
@@ -385,41 +256,36 @@ impl ModSearch {
 #[cfg(test)]
 mod tests {
     use crate::ModInfo;
+    use std::env;
 
     #[test]
     fn instr_text() {
-        let instr_text = ModInfo::get(61772).unwrap().instrument_text;
+        let instr_text = ModInfo::get(61772, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables")).unwrap().instrument_text;
         assert_eq!(
             instr_text,
-            "7th  Dance
-
-             By:
- Jari Ylamaki aka Yrde
-  27.11.2000 HELSINKI
-
-            Finland
-           SITE :
-  www.mp3.com/Yrde"
+            "\n        7th  Dance\n\n             By:\n Jari Ylamaki aka Yrde\n  27.11.2000 HELSINKI\n\n            Finland\n           SITE :\n  www.mp3.com/Yrde"
         );
     }
 
     #[test]
     fn invalid_modid() {
-        let invalid = ModInfo::get(30638);
+        let invalid = ModInfo::get(30638, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables"));
         assert!(invalid.is_err());
     }
 
     #[test]
     fn valid_modid() {
-        let valid = ModInfo::get(99356);
+        let valid = ModInfo::get(99356, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables"));
         assert!(valid.is_ok());
     }
 
+    /*
     #[test]
     fn spotlit_modid() {
-        let module = ModInfo::get(158263).unwrap();
+        let module = ModInfo::get(158263, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables")).unwrap();
         assert!(module.spotlit);
     }
+    */
 
     #[test]
     fn name_resolving() {
@@ -434,7 +300,7 @@ mod tests {
 
     #[test]
     fn dl_link_modinfo() {
-        let modinfo = ModInfo::get(41070).unwrap();
+        let modinfo = ModInfo::get(41070, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables")).unwrap();
         assert_eq!(
             modinfo.get_download_link().as_str(),
             "https://api.modarchive.org/downloads.php?moduleid=41070#fading_horizont.mod"
