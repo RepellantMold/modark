@@ -93,7 +93,7 @@ pub struct ModInfo {
     pub instrument_text: String,
 }
 
-fn inner_request(mod_id: u32, api_key: &str) -> String {
+fn inner_request(mod_id: u32, api_key: &str) -> Result<String, crate::Error> {
     let body = ureq::get(
         format!(
             "{BASEURL}?key={api_key}&request=view_by_moduleid&query={mod_id}"
@@ -101,12 +101,12 @@ fn inner_request(mod_id: u32, api_key: &str) -> String {
         .as_str(),
     )
     .timeout(std::time::Duration::from_secs(60))
-    .call()
-    .unwrap()
-    .into_string()
-    .unwrap();
+    .call();
 
-    body
+    match body {
+        Ok(body) => Ok(body.into_string().unwrap_or_default()),
+        Err(_) => Err(crate::Error::RequestError),
+    }
 }
 
 impl ModInfo {
@@ -124,13 +124,19 @@ impl ModInfo {
     pub fn get(mod_id: u32, api_key: &str) -> Result<ModInfo, crate::Error> {
         let body = inner_request(mod_id, api_key);
 
+        if body.is_err() {
+            return Err(crate::Error::RequestError);
+        }
+
+        let body = body.unwrap();
+
         let id = mod_id;
         let scrape_time = iso8601_time(&std::time::SystemTime::now());
 
         let xml = roxmltree::Document::parse(&body);
 
         if xml.is_err() {
-            return Err(crate::Error::NotFound);
+            return Err(crate::Error::ParsingError);
         }
 
         let xml = xml.unwrap();
@@ -155,9 +161,10 @@ impl ModInfo {
         let instrument_text = Self::find_node_text(&xml_descendants, "instruments").unwrap_or_default();
 
         // Cast some of the values to their correct types in the struct
-        let download_count = download_count.parse::<u32>().unwrap();
-        let fav_count = fav_count.parse::<u32>().unwrap();
-        let channel_count = channel_count.parse::<u32>().unwrap();
+        let download_count = download_count.parse::<u32>().unwrap_or_default();
+        let fav_count = fav_count.parse::<u32>().unwrap_or_default();
+        let channel_count = channel_count.parse::<u32>().unwrap_or_default();
+        
 
         Ok(ModInfo {
             id,
