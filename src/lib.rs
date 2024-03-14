@@ -35,6 +35,7 @@
 const BASEURL: &str = "https://modarchive.org/data/xml-tools.php";
 
 use chrono::prelude::{DateTime, Utc};
+use std::io::Read;
 
 // https://stackoverflow.com/a/64148190
 fn iso8601_time(st: &std::time::SystemTime) -> String {
@@ -206,6 +207,24 @@ impl ModInfo {
             "https://api.modarchive.org/downloads.php?moduleid={}#{}",
             self.id, self.filename
         )
+    }
+
+    /// Return the raw bytes of a module file into a vector of bytes.
+    pub fn download_module(&self) -> Result<Vec<u8>, crate::Error> {
+        let link = Self::get_download_link(self);
+    
+        let body = match ureq::get(&link).call() {
+            Ok(body) => body,
+            Err(_) => return Err(crate::Error::RequestError),
+        };
+    
+        let mut vector_of_bytes = Vec::new();
+
+        let _ = body.into_reader()
+        .take(64_000_000)
+        .read_to_end(&mut vector_of_bytes);
+
+        Ok(vector_of_bytes)
     }
 
     /// Searches for your string on Mod Archive and returns the results on the first page (a.k.a
