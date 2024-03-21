@@ -1,0 +1,17 @@
+name: Lint
+
+on:
+  [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: qernal/github-actions-rust-clippy@v2.0.2
