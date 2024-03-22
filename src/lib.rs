@@ -37,6 +37,9 @@ const BASEURL: &str = "https://modarchive.org/data/xml-tools.php";
 use chrono::prelude::{DateTime, Utc};
 use std::io::Read;
 
+use thiserror::Error;
+use anyhow::Context;
+
 // https://stackoverflow.com/a/64148190
 fn iso8601_time(st: &std::time::SystemTime) -> String {
     let dt: DateTime<Utc> = (*st).into();
@@ -44,12 +47,20 @@ fn iso8601_time(st: &std::time::SystemTime) -> String {
 }
 
 /// Error enum for functions in the crate that return a [`Result`]
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum Error {
+    #[error("The module was not found in Mod Archive")]
     NotFound,
-    ParsingError,
-    RequestError,
+    #[error("There was a problem handling the API request: {0}")]
+    APIRequestError(#[from] ureq::Error),
+    #[error("There was a problem parsing the XML: {0}")]
+    XMLParsingError(#[from] roxmltree::Error),
+    #[error("There was an IO error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("An unknown error occurred")]
+    Unknown,
 }
+
 
 /// Simple struct to represent a search result, id and filename will be provided in each
 #[derive(Debug)]
@@ -120,7 +131,7 @@ impl ModInfo {
 
         match body {
             Ok(body) => Ok(body.into_string().unwrap_or_default()),
-            Err(_) => Err(crate::Error::RequestError),
+            Err(e) => Err(crate::Error::APIRequestError(e)),
         }
     }
 
@@ -136,24 +147,20 @@ impl ModInfo {
     /// generated at random, deliberately entered or acquired by resolving a filename and
     /// picking a search result), and then gives you a full [`ModInfo`] struct.
     pub fn get(mod_id: u32, api_key: &str) -> Result<ModInfo, crate::Error> {
-        let body = Self::_inner_request(mod_id, api_key);
-
-        if body.is_err() {
-            return Err(crate::Error::RequestError);
-        }
+        let body = match Self::_inner_request(mod_id, api_key) {
+            Ok(body) => Some(body),
+            Err(e) => return Err(e),
+        };
 
         let body = body.unwrap();
 
         let id = mod_id;
         let scrape_time = iso8601_time(&std::time::SystemTime::now());
 
-        let xml = roxmltree::Document::parse(&body);
-
-        if xml.is_err() {
-            return Err(crate::Error::ParsingError);
-        }
-
-        let xml = xml.unwrap();
+        let xml = match roxmltree::Document::parse(&body) {
+            Ok(xml) => xml,
+            Err(e) => return Err(crate::Error::XMLParsingError(e)),
+        };
 
         let xml_descendants: Vec<_> = xml.descendants().collect();
 
@@ -215,20 +222,22 @@ impl ModInfo {
     
         let body = match ureq::get(&link).call() {
             Ok(body) => body,
-            Err(_) => return Err(crate::Error::RequestError),
+            Err(e) => return Err(crate::Error::APIRequestError(e)),
         };
     
         let mut vector_of_bytes = Vec::new();
 
         let _ = body.into_reader()
         .take(64_000_000)
-        .read_to_end(&mut vector_of_bytes);
+        .read_to_end(&mut vector_of_bytes)
+        .with_context(|| format!("Failed to create the buffer"));
 
         Ok(vector_of_bytes)
     }
 
     /// Searches for your string on Mod Archive and returns the results on the first page (a.k.a
     /// only up to the first 40) as a vector of [`ModSearchResolve`]
+    // TODO: refactor this entire function
     pub fn resolve_filename(filename: &str) -> Result<Vec<ModSearchResolve>, crate::Error> {
         let body: String = ureq::get(
                 format!(
@@ -282,30 +291,27 @@ impl ModInfo {
     }
 
     pub fn track_requests(api_key: &str) -> Result<String, crate::Error> {
-        let body = ureq::get(
+        let body = match ureq::get(
             format!(
                 "{BASEURL}?key={api_key}&request=view_requests"
             )
             .as_str(),
         )
         .timeout(std::time::Duration::from_secs(60))
-        .call();
+        .call() {
+            Ok(body) => body,
+            Err(e) => return Err(crate::Error::APIRequestError(e)),
+        };
 
-        if body.is_err() {
-            return Err(crate::Error::RequestError);
-        }
+        let body = match body.into_string() {
+            Ok(body) => body,
+            Err(e) => return Err(crate::Error::IOError(e)),
+        };
 
-        let body = body.unwrap();
-
-        let body = body.into_string().unwrap_or_default();
-
-        let xml = roxmltree::Document::parse(&body);
-
-        if xml.is_err() {
-            return Err(crate::Error::ParsingError);
-        }
-
-        let xml = xml.unwrap();
+        let xml = match roxmltree::Document::parse(&body) {
+            Ok(xml) => xml,
+            Err(e) => return Err(crate::Error::XMLParsingError(e)),
+        };
 
         let xml_descendants: Vec<_> = xml.descendants().collect();
 
@@ -327,6 +333,8 @@ impl ModSearchResolve {
 }
 
 impl ModSearch {
+    // TODO: the rest of the search functions
+
     /// (a helper function to make the code more readable, do not use directly)
     fn _inner_request(request: &str, query: &str, api_key: &str) -> Result<String, crate::Error> {
         let body = ureq::get(
@@ -340,7 +348,7 @@ impl ModSearch {
 
         match body {
             Ok(body) => Ok(body.into_string().unwrap_or_default()),
-            Err(_) => Err(crate::Error::RequestError),
+            Err(e) => Err(crate::Error::APIRequestError(e)),
         }
     }
 }
