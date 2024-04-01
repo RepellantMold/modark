@@ -3,7 +3,8 @@ use std::env;
 use modark::ModInfo;
 
 fn main() {
-    let key = &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables");
+    let key = &env::var("MODARCH_KEY")
+        .expect("Expected a Mod Archive API key in the environment variables");
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).unwrap_or(&"".into()).as_ref() {
         "get" => {
@@ -42,7 +43,6 @@ fn main() {
             };
 
             println!("Raw bytes:\n{:?}", module_bytes);
-
         }
         _ => println!("Usage: trackermeta get <filename>"),
     }

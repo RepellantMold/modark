@@ -37,8 +37,8 @@ const BASEURL: &str = "https://modarchive.org/data/xml-tools.php";
 use chrono::prelude::{DateTime, Utc};
 use std::io::Read;
 
-use thiserror::Error;
 use anyhow::Context;
+use thiserror::Error;
 
 // https://stackoverflow.com/a/64148190
 fn iso8601_time(st: &std::time::SystemTime) -> String {
@@ -60,7 +60,6 @@ pub enum Error {
     #[error("An unknown error occurred")]
     Unknown,
 }
-
 
 /// Simple struct to represent a search result, id and filename will be provided in each
 #[derive(Debug)]
@@ -121,10 +120,7 @@ impl ModInfo {
     /// (a helper function to make the code more readable, do not use directly)
     fn _inner_request(mod_id: u32, api_key: &str) -> Result<String, crate::Error> {
         let body = ureq::get(
-            format!(
-                "{BASEURL}?key={api_key}&request=view_by_moduleid&query={mod_id}"
-            )
-            .as_str(),
+            format!("{BASEURL}?key={api_key}&request=view_by_moduleid&query={mod_id}").as_str(),
         )
         .timeout(std::time::Duration::from_secs(60))
         .call();
@@ -137,7 +133,8 @@ impl ModInfo {
 
     /// (a helper function to make the code more readable, do not use directly)
     fn find_node_text(descendants: &[roxmltree::Node], tag: &str) -> Option<String> {
-        descendants.iter()
+        descendants
+            .iter()
             .find(|node| node.has_tag_name(tag))
             .and_then(|node| node.text())
             .map(|s| s.to_string())
@@ -179,13 +176,13 @@ impl ModInfo {
         let channel_count = Self::find_node_text(&xml_descendants, "channels").unwrap_or_default();
         let genre = Self::find_node_text(&xml_descendants, "genretext").unwrap_or_default();
         let upload_date = Self::find_node_text(&xml_descendants, "date").unwrap_or_default();
-        let instrument_text = Self::find_node_text(&xml_descendants, "instruments").unwrap_or_default();
+        let instrument_text =
+            Self::find_node_text(&xml_descendants, "instruments").unwrap_or_default();
 
         // Cast some of the values to their correct types in the struct
         let download_count = download_count.parse::<u32>().unwrap_or_default();
         let fav_count = fav_count.parse::<u32>().unwrap_or_default();
         let channel_count = channel_count.parse::<u32>().unwrap_or_default();
-
 
         Ok(ModInfo {
             id,
@@ -219,18 +216,19 @@ impl ModInfo {
     /// Return the raw bytes of a module file into a vector of bytes.
     pub fn download_module(&self) -> Result<Vec<u8>, crate::Error> {
         let link = Self::get_download_link(self);
-    
+
         let body = match ureq::get(&link).call() {
             Ok(body) => body,
             Err(e) => return Err(crate::Error::APIRequestError(Box::new(e))),
         };
-    
+
         let mut vector_of_bytes = Vec::new();
 
-        let _ = body.into_reader()
-        .take(64_000_000)
-        .read_to_end(&mut vector_of_bytes)
-        .with_context(|| "Failed to create the buffer".to_string());
+        let _ = body
+            .into_reader()
+            .take(64_000_000)
+            .read_to_end(&mut vector_of_bytes)
+            .with_context(|| "Failed to create the buffer".to_string());
 
         Ok(vector_of_bytes)
     }
@@ -291,17 +289,14 @@ impl ModInfo {
     }
 
     pub fn track_requests(api_key: &str) -> Result<String, crate::Error> {
-        let body = match ureq::get(
-            format!(
-                "{BASEURL}?key={api_key}&request=view_requests"
-            )
-            .as_str(),
-        )
-        .timeout(std::time::Duration::from_secs(60))
-        .call() {
-            Ok(body) => body,
-            Err(e) => return Err(crate::Error::APIRequestError(Box::new(e))),
-        };
+        let body =
+            match ureq::get(format!("{BASEURL}?key={api_key}&request=view_requests").as_str())
+                .timeout(std::time::Duration::from_secs(60))
+                .call()
+            {
+                Ok(body) => body,
+                Err(e) => return Err(crate::Error::APIRequestError(Box::new(e))),
+            };
 
         let body = match body.into_string() {
             Ok(body) => body,
@@ -337,14 +332,10 @@ impl ModSearch {
 
     /// (a helper function to make the code more readable, do not use directly)
     fn _inner_request(request: &str, query: &str, api_key: &str) -> Result<String, crate::Error> {
-        let body = ureq::get(
-            format!(
-                "{BASEURL}?key={api_key}&request={request}&query={query}"
-            )
-            .as_str(),
-        )
-        .timeout(std::time::Duration::from_secs(60))
-        .call();
+        let body =
+            ureq::get(format!("{BASEURL}?key={api_key}&request={request}&query={query}").as_str())
+                .timeout(std::time::Duration::from_secs(60))
+                .call();
 
         match body {
             Ok(body) => Ok(body.into_string().unwrap_or_default()),
@@ -360,7 +351,13 @@ mod tests {
 
     #[test]
     fn instr_text() {
-        let instr_text = ModInfo::get(61772, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables")).unwrap().instrument_text;
+        let instr_text = ModInfo::get(
+            61772,
+            &env::var("MODARCH_KEY")
+                .expect("Expected a Mod Archive API key in the environment variables"),
+        )
+        .unwrap()
+        .instrument_text;
         assert_eq!(
             instr_text,
             "\n        7th  Dance\n\n             By:\n Jari Ylamaki aka Yrde\n  27.11.2000 HELSINKI\n\n            Finland\n           SITE :\n  www.mp3.com/Yrde"
@@ -369,13 +366,21 @@ mod tests {
 
     #[test]
     fn invalid_modid() {
-        let invalid = ModInfo::get(30638, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables"));
+        let invalid = ModInfo::get(
+            30638,
+            &env::var("MODARCH_KEY")
+                .expect("Expected a Mod Archive API key in the environment variables"),
+        );
         assert!(invalid.is_err());
     }
 
     #[test]
     fn valid_modid() {
-        let valid = ModInfo::get(99356, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables"));
+        let valid = ModInfo::get(
+            99356,
+            &env::var("MODARCH_KEY")
+                .expect("Expected a Mod Archive API key in the environment variables"),
+        );
         assert!(valid.is_ok());
     }
 
@@ -400,7 +405,12 @@ mod tests {
 
     #[test]
     fn dl_link_modinfo() {
-        let modinfo = ModInfo::get(41070, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables")).unwrap();
+        let modinfo = ModInfo::get(
+            41070,
+            &env::var("MODARCH_KEY")
+                .expect("Expected a Mod Archive API key in the environment variables"),
+        )
+        .unwrap();
         assert_eq!(
             modinfo.get_download_link().as_str(),
             "https://api.modarchive.org/downloads.php?moduleid=41070#fading_horizont.mod"
