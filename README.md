@@ -10,19 +10,10 @@ This project is forked from [trackermeta by vivyir](https://github.com/vivyir/tr
 
 ## Table of Contents
 
-- [Install](#install)
 - [Usage](#Usage)
 - [Maintainers](#maintainers)
 - [Contributing](#contributing)
 - [License](#license)
-
-## Install
-
-It's basically just like any other Rust crate.
-
-```sh
-cargo add modark
-```
 
 ## Usage
 

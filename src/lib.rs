@@ -52,7 +52,7 @@ pub enum Error {
     #[error("The module was not found in Mod Archive")]
     NotFound,
     #[error("There was a problem handling the API request: {0}")]
-    APIRequestError(#[from] ureq::Error),
+    APIRequestError(#[from] Box<ureq::Error>),
     #[error("There was a problem parsing the XML: {0}")]
     XMLParsingError(#[from] roxmltree::Error),
     #[error("There was an IO error: {0}")]
@@ -131,7 +131,7 @@ impl ModInfo {
 
         match body {
             Ok(body) => Ok(body.into_string().unwrap_or_default()),
-            Err(e) => Err(crate::Error::APIRequestError(e)),
+            Err(e) => Err(crate::Error::APIRequestError(Box::new(e))),
         }
     }
 
@@ -222,7 +222,7 @@ impl ModInfo {
     
         let body = match ureq::get(&link).call() {
             Ok(body) => body,
-            Err(e) => return Err(crate::Error::APIRequestError(e)),
+            Err(e) => return Err(crate::Error::APIRequestError(Box::new(e))),
         };
     
         let mut vector_of_bytes = Vec::new();
@@ -230,7 +230,7 @@ impl ModInfo {
         let _ = body.into_reader()
         .take(64_000_000)
         .read_to_end(&mut vector_of_bytes)
-        .with_context(|| format!("Failed to create the buffer"));
+        .with_context(|| "Failed to create the buffer".to_string());
 
         Ok(vector_of_bytes)
     }
@@ -300,7 +300,7 @@ impl ModInfo {
         .timeout(std::time::Duration::from_secs(60))
         .call() {
             Ok(body) => body,
-            Err(e) => return Err(crate::Error::APIRequestError(e)),
+            Err(e) => return Err(crate::Error::APIRequestError(Box::new(e))),
         };
 
         let body = match body.into_string() {
@@ -348,7 +348,7 @@ impl ModSearch {
 
         match body {
             Ok(body) => Ok(body.into_string().unwrap_or_default()),
-            Err(e) => Err(crate::Error::APIRequestError(e)),
+            Err(e) => Err(crate::Error::APIRequestError(Box::new(e))),
         }
     }
 }
