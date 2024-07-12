@@ -1,6 +1,5 @@
-//! This is a library crate for working with the [Mod Archive](https://modarchive.org)
-//! website via [its XML API](https://modarchive.org/index.php?xml-api). Please check out the documentation for [`ModInfo`] and its methods for more info,
-//! do be sure to look at the examples aswell!
+//! This is a library crate for working with the [Mod Archive](https://modarchive.org) website via [its XML API](https://modarchive.org/index.php?xml-api).
+//! Please check out the documentation for [`ModInfo`] and its methods for more info, do be sure to look at the examples aswell!
 //!
 //! ## Example
 //! ### Get module info as a struct using a module ID
@@ -31,10 +30,12 @@
 //! [Mod Archive]: https://modarchive.org
 #![allow(clippy::needless_doctest_main)]
 
+mod search;
+
 /// The base URL for the Mod Archive XML API
 const BASEURL: &str = "https://modarchive.org/data/xml-tools.php";
 
-use chrono::prelude::{DateTime, Utc};
+use chrono::prelude::{ DateTime, Utc };
 use std::io::Read;
 
 use anyhow::Context;
@@ -51,12 +52,11 @@ fn iso8601_time(st: &std::time::SystemTime) -> String {
 pub enum Error {
     #[error("The module was not found in Mod Archive")]
     NotFound,
-    #[error("There was a problem handling the API request: {0}")]
-    APIRequestError(#[from] Box<ureq::Error>),
-    #[error("There was a problem parsing the XML: {0}")]
-    XMLParsingError(#[from] roxmltree::Error),
-    #[error("There was an IO error: {0}")]
-    IOError(#[from] std::io::Error),
+    #[error("There was a problem handling the API request: {0}")] APIRequestError(
+        #[from] Box<ureq::Error>,
+    ),
+    #[error("There was a problem parsing the XML: {0}")] XMLParsingError(#[from] roxmltree::Error),
+    #[error("There was an IO error: {0}")] IOError(#[from] std::io::Error),
     #[error("An unknown error occurred")]
     Unknown,
 }
@@ -119,11 +119,12 @@ pub struct ModInfo {
 impl ModInfo {
     /// (a helper function to make the code more readable, do not use directly)
     fn _inner_request(mod_id: u32, api_key: &str) -> Result<String, crate::Error> {
-        let body = ureq::get(
-            format!("{BASEURL}?key={api_key}&request=view_by_moduleid&query={mod_id}").as_str(),
-        )
-        .timeout(std::time::Duration::from_secs(60))
-        .call();
+        let body = ureq
+            ::get(
+                format!("{BASEURL}?key={api_key}&request=view_by_moduleid&query={mod_id}").as_str()
+            )
+            .timeout(std::time::Duration::from_secs(60))
+            .call();
 
         match body {
             Ok(body) => Ok(body.into_string().unwrap_or_default()),
@@ -146,7 +147,9 @@ impl ModInfo {
     pub fn get(mod_id: u32, api_key: &str) -> Result<ModInfo, crate::Error> {
         let body = match Self::_inner_request(mod_id, api_key) {
             Ok(body) => Some(body),
-            Err(e) => return Err(e),
+            Err(e) => {
+                return Err(e);
+            }
         };
 
         let body = body.unwrap();
@@ -156,7 +159,9 @@ impl ModInfo {
 
         let xml = match roxmltree::Document::parse(&body) {
             Ok(xml) => xml,
-            Err(e) => return Err(crate::Error::XMLParsingError(e)),
+            Err(e) => {
+                return Err(crate::Error::XMLParsingError(e));
+            }
         };
 
         let xml_descendants: Vec<_> = xml.descendants().collect();
@@ -176,8 +181,10 @@ impl ModInfo {
         let channel_count = Self::find_node_text(&xml_descendants, "channels").unwrap_or_default();
         let genre = Self::find_node_text(&xml_descendants, "genretext").unwrap_or_default();
         let upload_date = Self::find_node_text(&xml_descendants, "date").unwrap_or_default();
-        let instrument_text =
-            Self::find_node_text(&xml_descendants, "instruments").unwrap_or_default();
+        let instrument_text = Self::find_node_text(
+            &xml_descendants,
+            "instruments"
+        ).unwrap_or_default();
 
         // Cast some of the values to their correct types in the struct
         let download_count = download_count.parse::<u32>().unwrap_or_default();
@@ -207,10 +214,7 @@ impl ModInfo {
     /// resolver function please consider using the [`ModSearchResolve::get_download_link()`] method
     /// instead.
     pub fn get_download_link(&self) -> String {
-        format!(
-            "https://api.modarchive.org/downloads.php?moduleid={}#{}",
-            self.id, self.filename
-        )
+        format!("https://api.modarchive.org/downloads.php?moduleid={}#{}", self.id, self.filename)
     }
 
     /// Return the raw bytes of a module file into a vector of bytes.
@@ -219,7 +223,9 @@ impl ModInfo {
 
         let body = match ureq::get(&link).call() {
             Ok(body) => body,
-            Err(e) => return Err(crate::Error::APIRequestError(Box::new(e))),
+            Err(e) => {
+                return Err(crate::Error::APIRequestError(Box::new(e)));
+            }
         };
 
         let mut vector_of_bytes = Vec::new();
@@ -237,12 +243,9 @@ impl ModInfo {
     /// only up to the first 40) as a vector of [`ModSearchResolve`]
     // TODO: refactor this entire function
     pub fn resolve_filename(filename: &str) -> Result<Vec<ModSearchResolve>, crate::Error> {
-        let body: String = ureq::get(
-                format!(
-                    "https://modarchive.org/index.php?request=search&query={}&submit=Find&search_type=filename",
-                    filename
-                )
-                .as_str(),
+        let body: String = ureq
+            ::get(
+                format!("https://modarchive.org/index.php?request=search&query={}&submit=Find&search_type=filename", filename).as_str()
             )
             .call()
             .unwrap()
@@ -256,8 +259,10 @@ impl ModInfo {
 
         match status {
             Some(_) => {}
-            None => return Err(crate::Error::NotFound),
-        };
+            None => {
+                return Err(crate::Error::NotFound);
+            }
+        }
         // from this point on we can unwrap after each query selector
         // because our info will for sure be present.
 
@@ -268,13 +273,8 @@ impl ModInfo {
                 let node = nodehandle.get(parser).unwrap();
 
                 let id = match node.as_tag().unwrap().attributes().get("href") {
-                    Some(Some(a)) => a
-                        .as_utf8_str()
-                        .split("query=")
-                        .nth(1)
-                        .unwrap()
-                        .parse()
-                        .unwrap(),
+                    Some(Some(a)) =>
+                        a.as_utf8_str().split("query=").nth(1).unwrap().parse().unwrap(),
                     Some(None) => unreachable!(),
                     None => unreachable!(),
                 };
@@ -289,23 +289,30 @@ impl ModInfo {
     }
 
     pub fn track_requests(api_key: &str) -> Result<String, crate::Error> {
-        let body =
-            match ureq::get(format!("{BASEURL}?key={api_key}&request=view_requests").as_str())
+        let body = match
+            ureq
+                ::get(format!("{BASEURL}?key={api_key}&request=view_requests").as_str())
                 .timeout(std::time::Duration::from_secs(60))
                 .call()
-            {
-                Ok(body) => body,
-                Err(e) => return Err(crate::Error::APIRequestError(Box::new(e))),
-            };
+        {
+            Ok(body) => body,
+            Err(e) => {
+                return Err(crate::Error::APIRequestError(Box::new(e)));
+            }
+        };
 
         let body = match body.into_string() {
             Ok(body) => body,
-            Err(e) => return Err(crate::Error::IOError(e)),
+            Err(e) => {
+                return Err(crate::Error::IOError(e));
+            }
         };
 
         let xml = match roxmltree::Document::parse(&body) {
             Ok(xml) => xml,
-            Err(e) => return Err(crate::Error::XMLParsingError(e)),
+            Err(e) => {
+                return Err(crate::Error::XMLParsingError(e));
+            }
         };
 
         let xml_descendants: Vec<_> = xml.descendants().collect();
@@ -320,100 +327,9 @@ impl ModInfo {
 impl ModSearchResolve {
     /// Get the download link of this specific module.
     pub fn get_download_link(&self) -> String {
-        format!(
-            "https://api.modarchive.org/downloads.php?moduleid={}#{}",
-            self.id, self.filename
-        )
-    }
-}
-
-impl ModSearch {
-    // TODO: the rest of the search functions
-
-    /// (a helper function to make the code more readable, do not use directly)
-    fn _inner_request(request: &str, query: &str, api_key: &str) -> Result<String, crate::Error> {
-        let body =
-            ureq::get(format!("{BASEURL}?key={api_key}&request={request}&query={query}").as_str())
-                .timeout(std::time::Duration::from_secs(60))
-                .call();
-
-        match body {
-            Ok(body) => Ok(body.into_string().unwrap_or_default()),
-            Err(e) => Err(crate::Error::APIRequestError(Box::new(e))),
-        }
+        format!("https://api.modarchive.org/downloads.php?moduleid={}#{}", self.id, self.filename)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::ModInfo;
-    use std::env;
-
-    #[test]
-    fn instr_text() {
-        let instr_text = ModInfo::get(
-            61772,
-            &env::var("MODARCH_KEY")
-                .expect("Expected a Mod Archive API key in the environment variables"),
-        )
-        .unwrap()
-        .instrument_text;
-        assert_eq!(
-            instr_text,
-            "\n        7th  Dance\n\n             By:\n Jari Ylamaki aka Yrde\n  27.11.2000 HELSINKI\n\n            Finland\n           SITE :\n  www.mp3.com/Yrde"
-        );
-    }
-
-    #[test]
-    fn invalid_modid() {
-        let invalid = ModInfo::get(
-            30638,
-            &env::var("MODARCH_KEY")
-                .expect("Expected a Mod Archive API key in the environment variables"),
-        );
-        assert!(invalid.is_err());
-    }
-
-    #[test]
-    fn valid_modid() {
-        let valid = ModInfo::get(
-            99356,
-            &env::var("MODARCH_KEY")
-                .expect("Expected a Mod Archive API key in the environment variables"),
-        );
-        assert!(valid.is_ok());
-    }
-
-    /*
-    #[test]
-    fn spotlit_modid() {
-        let module = ModInfo::get(158263, &env::var("MODARCH_KEY").expect("Expected a Mod Archive API key in the environment variables")).unwrap();
-        assert!(module.spotlit);
-    }
-    */
-
-    #[test]
-    fn name_resolving() {
-        let mod_search = ModInfo::resolve_filename("virtual-monotone.mod");
-        let mod_search = &mod_search.unwrap()[0];
-        assert_eq!(mod_search.id, 88676);
-        assert_eq!(
-            mod_search.get_download_link().as_str(),
-            "https://api.modarchive.org/downloads.php?moduleid=88676#virtual-monotone.mod"
-        );
-    }
-
-    #[test]
-    fn dl_link_modinfo() {
-        let modinfo = ModInfo::get(
-            41070,
-            &env::var("MODARCH_KEY")
-                .expect("Expected a Mod Archive API key in the environment variables"),
-        )
-        .unwrap();
-        assert_eq!(
-            modinfo.get_download_link().as_str(),
-            "https://api.modarchive.org/downloads.php?moduleid=41070#fading_horizont.mod"
-        );
-    }
-}
+mod tests;
