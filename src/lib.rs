@@ -136,9 +136,8 @@ impl ModInfo {
     fn find_node_text(descendants: &[roxmltree::Node], tag: &str) -> Option<String> {
         descendants
             .iter()
-            .find(|node| node.has_tag_name(tag))
-            .and_then(|node| node.text())
-            .map(|s| s.to_string())
+            .filter(|node| node.has_tag_name(tag))
+            .find_map(|node| node.text().map(|s| s.to_string()))
     }
 
     /// Probably the singular most important function in this crate, takes a module ID (can be
