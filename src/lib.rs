@@ -47,6 +47,14 @@ fn iso8601_time(st: &std::time::SystemTime) -> String {
     format!("{}", dt.format("%+"))
 }
 
+/// (a helper function to make the code more readable, do not use directly)
+fn find_node_text(descendants: &[roxmltree::Node], tag: &str) -> Option<String> {
+    descendants
+        .iter()
+        .filter(|node| node.has_tag_name(tag))
+        .find_map(|node| node.text().map(|s| s.to_string()))
+}
+
 /// Error enum for functions in the crate that return a [`Result`]
 #[derive(Error, Debug)]
 pub enum Error {
@@ -132,14 +140,6 @@ impl ModInfo {
         }
     }
 
-    /// (a helper function to make the code more readable, do not use directly)
-    fn find_node_text(descendants: &[roxmltree::Node], tag: &str) -> Option<String> {
-        descendants
-            .iter()
-            .filter(|node| node.has_tag_name(tag))
-            .find_map(|node| node.text().map(|s| s.to_string()))
-    }
-
     /// Probably the singular most important function in this crate, takes a module ID (can be
     /// generated at random, deliberately entered or acquired by resolving a filename and
     /// picking a search result), and then gives you a full [`ModInfo`] struct.
@@ -165,22 +165,22 @@ impl ModInfo {
 
         let xml_descendants: Vec<_> = xml.descendants().collect();
 
-        if Self::find_node_text(&xml_descendants, "error").is_some() {
+        if find_node_text(&xml_descendants, "error").is_some() {
             return Err(crate::Error::NotFound);
         }
 
-        let filename = Self::find_node_text(&xml_descendants, "filename").unwrap_or_default();
-        let title = Self::find_node_text(&xml_descendants, "title").unwrap_or_default();
-        let size = Self::find_node_text(&xml_descendants, "size").unwrap_or_default();
-        let md5 = Self::find_node_text(&xml_descendants, "hash").unwrap_or_default();
-        let format = Self::find_node_text(&xml_descendants, "format").unwrap_or_default();
+        let filename = find_node_text(&xml_descendants, "filename").unwrap_or_default();
+        let title = find_node_text(&xml_descendants, "title").unwrap_or_default();
+        let size = find_node_text(&xml_descendants, "size").unwrap_or_default();
+        let md5 = find_node_text(&xml_descendants, "hash").unwrap_or_default();
+        let format = find_node_text(&xml_descendants, "format").unwrap_or_default();
         let spotlit = false; // TODO: implement this
-        let download_count = Self::find_node_text(&xml_descendants, "hits").unwrap_or_default();
-        let fav_count = Self::find_node_text(&xml_descendants, "favoured").unwrap_or_default();
-        let channel_count = Self::find_node_text(&xml_descendants, "channels").unwrap_or_default();
-        let genre = Self::find_node_text(&xml_descendants, "genretext").unwrap_or_default();
-        let upload_date = Self::find_node_text(&xml_descendants, "date").unwrap_or_default();
-        let instrument_text = Self::find_node_text(
+        let download_count = find_node_text(&xml_descendants, "hits").unwrap_or_default();
+        let fav_count = find_node_text(&xml_descendants, "favoured").unwrap_or_default();
+        let channel_count = find_node_text(&xml_descendants, "channels").unwrap_or_default();
+        let genre = find_node_text(&xml_descendants, "genretext").unwrap_or_default();
+        let upload_date = find_node_text(&xml_descendants, "date").unwrap_or_default();
+        let instrument_text = find_node_text(
             &xml_descendants,
             "instruments"
         ).unwrap_or_default();
@@ -316,8 +316,8 @@ impl ModInfo {
 
         let xml_descendants: Vec<_> = xml.descendants().collect();
 
-        let current = Self::find_node_text(&xml_descendants, "current").unwrap_or_default();
-        let maximum = Self::find_node_text(&xml_descendants, "maximum").unwrap_or_default();
+        let current = find_node_text(&xml_descendants, "current").unwrap_or_default();
+        let maximum = find_node_text(&xml_descendants, "maximum").unwrap_or_default();
 
         Ok(format!("{} requests made out of {}", current, maximum))
     }
